@@ -28,6 +28,7 @@ public class SubsonicController : ControllerBase
     private readonly SubsonicModelMapper _modelMapper;
     private readonly SubsonicProxyService _proxyService;
     private readonly PlaylistSyncService? _playlistSyncService;
+    private readonly ExternalIdResolutionService? _externalIdResolutionService;
     private readonly ILogger<SubsonicController> _logger;
     
     public SubsonicController(
@@ -40,7 +41,8 @@ public class SubsonicController : ControllerBase
         SubsonicModelMapper modelMapper,
         SubsonicProxyService proxyService,
         ILogger<SubsonicController> logger,
-        PlaylistSyncService? playlistSyncService = null)
+        PlaylistSyncService? playlistSyncService = null,
+        ExternalIdResolutionService? externalIdResolutionService = null)
     {
         _subsonicSettings = subsonicSettings.Value;
         _metadataService = metadataService;
@@ -51,6 +53,7 @@ public class SubsonicController : ControllerBase
         _modelMapper = modelMapper;
         _proxyService = proxyService;
         _playlistSyncService = playlistSyncService;
+        _externalIdResolutionService = externalIdResolutionService;
         _logger = logger;
 
         if (string.IsNullOrWhiteSpace(_subsonicSettings.Url))
@@ -772,11 +775,102 @@ public class SubsonicController : ControllerBase
             // Return success response immediately
             return _responseBuilder.CreateResponse(format, "starred", new { });
         }
+
+        // Check if this is an external song (but NOT a playlist)
+        var (isExternal, provider, externalId) = _localLibraryService.ParseSongId(playlistId);
+
+        if (isExternal && _externalIdResolutionService != null)
+        {
+            var result = await _externalIdResolutionService.ApplyStarAsync(
+                provider!, externalId!, parameters);
+
+            if (result != null)
+            {
+                return File(result.Value.Body, result.Value.ContentType ?? $"application/{format}");
+            }
+            return _responseBuilder.CreateResponse(format, "starred", new { });
+        }
         
         // For non-playlist items, relay to real Subsonic server
         try
         {
             var result = await _proxyService.RelayAsync("rest/star", parameters);
+            var contentType = result.ContentType ?? $"application/{format}";
+            return File(result.Body, contentType);
+        }
+        catch (HttpRequestException ex)
+        {
+            return _responseBuilder.CreateError(format, 0, $"Error connecting to Subsonic server: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Unstars (unfavorites) an item.
+    /// </summary>
+    [HttpGet, HttpPost]
+    [Route("rest/unstar")]
+    [Route("rest/unstar.view")]
+    public async Task<IActionResult> Unstar()
+    {
+        var parameters = await ExtractAllParameters();
+        var format = parameters.GetValueOrDefault("f", "xml");
+        
+        var id = parameters.GetValueOrDefault("id", "");
+        var (isExternal, provider, externalId) = _localLibraryService.ParseSongId(id);
+
+        if (isExternal && _externalIdResolutionService != null)
+        {
+            var result = await _externalIdResolutionService.ApplyUnstarAsync(
+                provider!, externalId!, parameters);
+
+            if (result != null)
+            {
+                return File(result.Value.Body, result.Value.ContentType ?? $"application/{format}");
+            }
+            return _responseBuilder.CreateResponse(format, "unstarred", new { });
+        }
+        
+        try
+        {
+            var result = await _proxyService.RelayAsync("rest/unstar", parameters);
+            var contentType = result.ContentType ?? $"application/{format}";
+            return File(result.Body, contentType);
+        }
+        catch (HttpRequestException ex)
+        {
+            return _responseBuilder.CreateError(format, 0, $"Error connecting to Subsonic server: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Sets the rating for an item.
+    /// </summary>
+    [HttpGet, HttpPost]
+    [Route("rest/setRating")]
+    [Route("rest/setRating.view")]
+    public async Task<IActionResult> SetRating()
+    {
+        var parameters = await ExtractAllParameters();
+        var format = parameters.GetValueOrDefault("f", "xml");
+        
+        var id = parameters.GetValueOrDefault("id", "");
+        var (isExternal, provider, externalId) = _localLibraryService.ParseSongId(id);
+
+        if (isExternal && _externalIdResolutionService != null)
+        {
+            var result = await _externalIdResolutionService.ApplySetRatingAsync(
+                provider!, externalId!, parameters);
+
+            if (result != null)
+            {
+                return File(result.Value.Body, result.Value.ContentType ?? $"application/{format}");
+            }
+            return _responseBuilder.CreateResponse(format, "setRating", new { });
+        }
+        
+        try
+        {
+            var result = await _proxyService.RelayAsync("rest/setRating", parameters);
             var contentType = result.ContentType ?? $"application/{format}";
             return File(result.Body, contentType);
         }

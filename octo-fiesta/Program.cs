@@ -48,6 +48,7 @@ builder.Services.AddSingleton<SubsonicRequestParser>();
 builder.Services.AddSingleton<SubsonicResponseBuilder>();
 builder.Services.AddSingleton<SubsonicModelMapper>();
 builder.Services.AddScoped<SubsonicProxyService>();
+builder.Services.AddScoped<ExternalIdResolutionService>();
 
 // Register music service based on configuration
 // IMPORTANT: Primary service MUST be registered LAST because ASP.NET Core DI
