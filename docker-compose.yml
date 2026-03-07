@@ -4,9 +4,11 @@ services:
     container_name: octo-fiesta
     restart: unless-stopped
     ports:
-      - "5274:8080"
+      - "5274:${INTERNAL_PORT:-8080}"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      # Internal listening port (must match the port in "ports" mapping above)
+      - ASPNETCORE_URLS=http://+:${INTERNAL_PORT:-8080}
       # Download path inside container
       - Library__DownloadPath=/app/downloads
       
@@ -29,6 +31,9 @@ services:
       - Subsonic__DownloadMode=${DOWNLOAD_MODE:-Track}
       # Auto upgrade quality: re-download tracks when higher quality is available (default: false)
       - Subsonic__AutoUpgradeQuality=${AUTO_UPGRADE_QUALITY:-false}
+      # Folder template for organizing downloaded files (default: {artist}/{album}/{track} - {title})
+      # Available placeholders: {artist}, {album}, {title}, {track}, {disc}, {year}, {genre}, {quality}
+      - Subsonic__FolderTemplate=${FOLDER_TEMPLATE:-{artist}/{album}/{track} - {title}}
       
       # ===== DEEZER SETTINGS =====
       # Deezer ARL token (required if using Deezer)

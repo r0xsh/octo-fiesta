@@ -321,33 +321,38 @@ public abstract class BaseDownloadService : IDownloadService
                 }
             }
             // Get metadata
-            // In Album mode, fetch the full album first to ensure AlbumArtist is correctly set
+            // Always fetch the full album to ensure AlbumArtist is correctly set.
+            // Without this, tracks with featured artists get filed under the track artist instead of the album artist
+            // Exception: playlists are represented as albums but should use track artist.
             Song? song = null;
 
-            if (SubsonicSettings.DownloadMode == DownloadMode.Album)
+            var tempSong = await MetadataService.GetSongAsync(externalProvider, externalId);
+            if (tempSong != null && !string.IsNullOrEmpty(tempSong.AlbumId)
+                && !PlaylistIdHelper.IsExternalPlaylist(tempSong.AlbumId))
             {
-                // First try to get the song to extract album ID
-                var tempSong = await MetadataService.GetSongAsync(externalProvider, externalId);
-                if (tempSong != null && !string.IsNullOrEmpty(tempSong.AlbumId))
+                var albumExternalId = ExtractExternalIdFromAlbumId(tempSong.AlbumId);
+                if (!string.IsNullOrEmpty(albumExternalId))
                 {
-                    var albumExternalId = ExtractExternalIdFromAlbumId(tempSong.AlbumId);
-                    if (!string.IsNullOrEmpty(albumExternalId))
+                    // Get full album with correct AlbumArtist
+                    var album = await MetadataService.GetAlbumAsync(externalProvider, albumExternalId);
+                    if (album != null)
                     {
-                        // Get full album with correct AlbumArtist
-                        var album = await MetadataService.GetAlbumAsync(externalProvider, albumExternalId);
-                        if (album != null)
+                        // Find the track in the album to get full metadata including AlbumArtist
+                        song = album.Songs.FirstOrDefault(s => s.ExternalId == externalId);
+
+                        // If track not found in album (e.g., bonus track), use tempSong with album artist
+                        if (song == null && !string.IsNullOrEmpty(album.Artist))
                         {
-                            // Find the track in the album
-                            song = album.Songs.FirstOrDefault(s => s.ExternalId == externalId);
+                            tempSong.AlbumArtist = album.Artist;
                         }
                     }
                 }
             }
 
-            // Fallback to individual song fetch if not in Album mode or album fetch failed
+            // Use individual song if album fetch didn't find it
             if (song == null)
             {
-                song = await MetadataService.GetSongAsync(externalProvider, externalId);
+                song = tempSong ?? await MetadataService.GetSongAsync(externalProvider, externalId);
             }
 
             if (song == null)
@@ -824,35 +829,24 @@ public abstract class BaseDownloadService : IDownloadService
             }
 
             var artistForPath = song.AlbumArtist ?? song.Artist;
-            var safeArtist = PathHelper.SanitizeFolderName(artistForPath);
-            var safeAlbum = PathHelper.SanitizeFolderName(song.Album);
-            var safeTitle = PathHelper.SanitizeFileName(song.Title);
 
-            var albumFolder = Path.Combine(CachePath, safeArtist, safeAlbum);
-            if (!Directory.Exists(albumFolder))
+            // Build the expected file name from the last segment of the template.
+            // We don't know the quality at lookup time, so we search by file name pattern
+            // within the entire cache directory tree to handle any folder template.
+            var template = SubsonicSettings.FolderTemplate;
+            var templateSegments = template.Split('/');
+            var fileNameTemplate = templateSegments[^1];
+
+            var expectedFileName = PathHelper.ReplacePlaceholders(fileNameTemplate, song, artistForPath, null);
+            var safeFileName = PathHelper.SanitizeFileName(expectedFileName);
+
+            // Search from the cache root for any file matching the expected name,
+            // regardless of the folder structure used by the template.
+            var searchPattern = $"{safeFileName}*.*";
+            var matches = Directory.GetFiles(CachePath, searchPattern, SearchOption.AllDirectories);
+            if (matches.Length > 0)
             {
-                return null;
-            }
-
-            var trackPrefix = song.Track.HasValue ? $"{song.Track.Value:D2} - " : string.Empty;
-
-            // Prefer exact expected prefix, but allow duplicates resolved by " (n)" suffix.
-            var primaryPattern = $"{trackPrefix}{safeTitle}*.*";
-            var primaryMatches = Directory.GetFiles(albumFolder, primaryPattern, SearchOption.TopDirectoryOnly);
-            if (primaryMatches.Length > 0)
-            {
-                return primaryMatches[0];
-            }
-
-            // If track numbers differ/missing, try title-only match within the same album folder.
-            if (!string.IsNullOrEmpty(trackPrefix))
-            {
-                var fallbackPattern = $"{safeTitle}*.*";
-                var fallbackMatches = Directory.GetFiles(albumFolder, fallbackPattern, SearchOption.TopDirectoryOnly);
-                if (fallbackMatches.Length > 0)
-                {
-                    return fallbackMatches[0];
-                }
+                return matches[0];
             }
 
             return null;

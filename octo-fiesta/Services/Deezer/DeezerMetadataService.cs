@@ -236,6 +236,9 @@ public class DeezerMetadataService : IMusicMetadataService
                 song.Album = album.Title;
                 song.AlbumId = album.Id;
                 song.AlbumArtist = album.Artist;
+                song.Year ??= album.Year;
+                song.Genre ??= album.Genre;
+                song.TotalTracks ??= album.SongCount;
                 
                 if (ShouldIncludeSong(song))
                 {
@@ -330,6 +333,13 @@ public class DeezerMetadataService : IMusicMetadataService
                           albumForCover.TryGetProperty("cover_medium", out var cover)
                 ? cover.GetString()
                 : null,
+            CoverArtUrlLarge = track.TryGetProperty("album", out var albumForCoverXL) && 
+                            albumForCoverXL.TryGetProperty("cover_xl", out var coverxl)
+                ? coverxl.GetString()
+                : (track.TryGetProperty("album", out var albumForCoverBig) &&
+                   albumForCoverBig.TryGetProperty("cover_big", out var coverBig)
+                    ? coverBig.GetString()
+                    : null),
             AlbumArtist = albumArtist,
             IsLocal = false,
             ExternalProvider = "deezer",
@@ -492,6 +502,11 @@ public class DeezerMetadataService : IMusicMetadataService
             CoverArtUrl = album.TryGetProperty("cover_medium", out var cover)
                 ? cover.GetString()
                 : null,
+            CoverArtUrlLarge = album.TryGetProperty("cover_xl", out var coverXl)
+                ? coverXl.GetString()
+                : (album.TryGetProperty("cover_big", out var coverBig)
+                    ? coverBig.GetString()
+                    : null),
             Genre = album.TryGetProperty("genres", out var genres) && 
                     genres.TryGetProperty("data", out var genresData) &&
                     genresData.GetArrayLength() > 0
@@ -511,9 +526,11 @@ public class DeezerMetadataService : IMusicMetadataService
         {
             Id = $"ext-deezer-artist-{externalId}",
             Name = artist.GetProperty("name").GetString() ?? "",
-            ImageUrl = artist.TryGetProperty("picture_medium", out var picture)
-                ? picture.GetString()
-                : null,
+            ImageUrl = artist.TryGetProperty("picture_big", out var pictureBig) 
+                ? pictureBig.GetString() 
+                : (artist.TryGetProperty("picture_medium", out var picture) 
+                    ? picture.GetString()
+                    : null),
             AlbumCount = artist.TryGetProperty("nb_album", out var nbAlbum) 
                 ? nbAlbum.GetInt32() 
                 : null,
@@ -671,10 +688,10 @@ public class DeezerMetadataService : IMusicMetadataService
             Duration = playlist.TryGetProperty("duration", out var duration) 
                 ? duration.GetInt32() 
                 : 0,
-            CoverUrl = playlist.TryGetProperty("picture_medium", out var picture) 
-                ? picture.GetString() 
-                : (playlist.TryGetProperty("picture_big", out var pictureBig) 
+            CoverUrl = playlist.TryGetProperty("picture_big", out var pictureBig) 
                     ? pictureBig.GetString() 
+                    : (playlist.TryGetProperty("picture_medium", out var picture) 
+                    ? picture.GetString()
                     : null),
             CreatedDate = createdDate
         };

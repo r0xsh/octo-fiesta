@@ -308,19 +308,21 @@ public class SubsonicController : ControllerBase
             }
         }
 
-        var localAlbumNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var localAlbumNames = new HashSet<string>();
         foreach (var album in localAlbums)
         {
             if (album is Dictionary<string, object> dict && dict.TryGetValue("name", out var nameObj))
             {
-                localAlbumNames.Add(nameObj?.ToString() ?? "");
+                var normalizedName = StringNormalizer.CreateComparisonKey(nameObj?.ToString() ?? "");
+                localAlbumNames.Add(normalizedName);
             }
         }
 
         var mergedAlbums = localAlbums.ToList();
         foreach (var externalAlbum in externalAlbums)
         {
-            if (!localAlbumNames.Contains(externalAlbum.Title))
+            var normalizedExternalName = StringNormalizer.CreateComparisonKey(externalAlbum.Title);
+            if (!localAlbumNames.Contains(normalizedExternalName))
             {
                 mergedAlbums.Add(_responseBuilder.ConvertAlbumToJson(externalAlbum));
             }
@@ -485,19 +487,21 @@ public class SubsonicController : ControllerBase
 
         if (externalAlbum != null && externalAlbum.Songs.Count > 0)
         {
-            var localSongTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var localSongTitles = new HashSet<string>();
             foreach (var song in localSongs)
             {
                 if (song is Dictionary<string, object> dict && dict.TryGetValue("title", out var titleObj))
                 {
-                    localSongTitles.Add(titleObj?.ToString() ?? "");
+                    var normalizedTitle = StringNormalizer.CreateComparisonKey(titleObj?.ToString() ?? "");
+                    localSongTitles.Add(normalizedTitle);
                 }
             }
 
             var mergedSongs = localSongs.ToList();
             foreach (var externalSong in externalAlbum.Songs)
             {
-                if (!localSongTitles.Contains(externalSong.Title))
+                var normalizedExternalTitle = StringNormalizer.CreateComparisonKey(externalSong.Title);
+                if (!localSongTitles.Contains(normalizedExternalTitle))
                 {
                     mergedSongs.Add(_responseBuilder.ConvertSongToJson(externalSong));
                 }
@@ -615,7 +619,7 @@ public class SubsonicController : ControllerBase
                 var album = await _metadataService.GetAlbumAsync(coverProvider!, coverExternalId!);
                 if (album?.CoverArtUrl != null)
                 {
-                    coverUrl = album.CoverArtUrl;
+                    coverUrl = album.CoverArtUrlLarge ?? album.CoverArtUrl;
                 }
                 break;
                 
@@ -625,7 +629,7 @@ public class SubsonicController : ControllerBase
                 var song = await _metadataService.GetSongAsync(coverProvider!, coverExternalId!);
                 if (song?.CoverArtUrl != null)
                 {
-                    coverUrl = song.CoverArtUrl;
+                    coverUrl = song.CoverArtUrlLarge ?? song.CoverArtUrl;
                 }
                 else
                 {
@@ -633,7 +637,7 @@ public class SubsonicController : ControllerBase
                     var albumFallback = await _metadataService.GetAlbumAsync(coverProvider!, coverExternalId!);
                     if (albumFallback?.CoverArtUrl != null)
                     {
-                        coverUrl = albumFallback.CoverArtUrl;
+                        coverUrl = albumFallback.CoverArtUrlLarge ?? albumFallback.CoverArtUrl;
                     }
                 }
                 break;
@@ -748,7 +752,13 @@ public class SubsonicController : ControllerBase
         var format = parameters.GetValueOrDefault("f", "xml");
         
         // Check if this is a playlist
+        // Clients may send the playlist ID as "id" or "albumId" depending on the client
+        // (playlists are presented as albums, so most clients use "albumId")
         var playlistId = parameters.GetValueOrDefault("id", "");
+        if (string.IsNullOrEmpty(playlistId) || !PlaylistIdHelper.IsExternalPlaylist(playlistId))
+        {
+            playlistId = parameters.GetValueOrDefault("albumId", "");
+        }
         
         if (!string.IsNullOrEmpty(playlistId) && PlaylistIdHelper.IsExternalPlaylist(playlistId))
         {

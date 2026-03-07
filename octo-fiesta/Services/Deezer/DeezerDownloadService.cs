@@ -120,10 +120,9 @@ public class DeezerDownloadService : BaseDownloadService
             _ => downloadInfo.Format
         };
 
-        // Build organized folder structure: Artist/Album/Track using AlbumArtist (fallback to Artist for singles)
-        var artistForPath = song.AlbumArtist ?? song.Artist;
+        // Build organized folder structure using configured template
         var basePath = SubsonicSettings.StorageMode == StorageMode.Cache ? CachePath : DownloadPath;
-        var outputPath = PathHelper.BuildTrackPath(basePath, artistForPath, song.Album, song.Title, song.Track, extension);
+        var outputPath = PathHelper.BuildTrackPath(basePath, song, extension, SubsonicSettings.FolderTemplate, downloadedQuality);
         
         // Create directories if they don't exist
         var albumFolder = Path.GetDirectoryName(outputPath)!;
@@ -274,6 +273,13 @@ public class DeezerDownloadService : BaseDownloadService
             }
 
             var trackToken = trackTokenElement.GetString();
+
+            var pageData = await GetTrackPageDataAsync(decryptionTrackId, arl, cancellationToken);
+            if (!string.IsNullOrEmpty(pageData?.TrackToken))
+            {
+                Logger.LogInformation("Using session-bound TRACK_TOKEN from private API for track {TrackId}", decryptionTrackId);
+                trackToken = pageData.TrackToken;
+            }
 
             // Get download URL via media API
             // Build format list based on preferred quality
